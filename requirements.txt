@@ -1,0 +1,27 @@
+# Bibliothèques de science des données
+# Calculs numériques et manipulation de matrices pour les features des nœuds
+numpy>=1.24.0,<2.0.0
+
+# Manipulation et analyse de données CSV (graphes et requêtes)
+pandas>=2.0.0,<3.0.0
+
+# Algorithmes d'apprentissage automatique (k-NN, normalisation)
+scikit-learn>=1.3.0,<2.0.0
+
+# Traitement de graphes
+# Création et manipulation de structures de graphes avec algorithmes de connectivité
+networkx>=3.0,<4.0.0
+
+# Visualisation
+# Génération de graphiques et visualisations des données
+matplotlib>=3.7.0,<4.0.0
+
+# Framework API Web (FastAPI)
+# Framework web moderne pour créer l'API REST de recherche pondérée
+fastapi>=0.104.0,<1.0.0
+
+# Serveur ASGI haute performance pour exécuter l'application FastAPI
+uvicorn[standard]>=0.24.0,<1.0.0
+
+# Support des uploads de fichiers CSV via l'interface web
+python-multipart>=0.0.6,<1.0.0
