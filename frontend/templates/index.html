@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8"/>
+    <title>TP Graph — Recherche & Bonus</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Recherche pondérée & Chemins (Bonus)</h1>
+        
+        <!-- Menu principal -->
+        <div class="grid2">
+            <div class="card">
+                <h2>Recherche (naïf / pruned)</h2>
+                <p class="small">Pour chaque (A,Y,D), retourne les B avec d(A,B) ≤ D.</p>
+                <a href="#search" class="cta" onclick="show('search')">Ouvrir</a>
+            </div>
+            <div class="card">
+                <h2>Chemins (A* / Beam)</h2>
+                <p class="small">Minimise la somme des distances pondérées le long de A→B.</p>
+                <a href="#paths" class="cta" onclick="show('paths')">Ouvrir</a>
+            </div>
+        </div>
+
+        <!-- Section Recherche -->
+        <div id="search" class="card hidden">
+            <div class="tabbar">
+                <button id="tabS" class="active" onclick="show('search')">Recherche</button>
+                <button onclick="show('paths')">Chemins</button>
+            </div>
+            <div class="grid3">
+                <div>
+                    <h3>Comprendre</h3>
+                    <ul class="small">
+                        <li><b>Naïf</b> : distance complète (50 dims).</li>
+                        <li><b>Pruned</b> : borne sur Top-M poids de Y, puis calcul complet (résultat = naïf).</li>
+                    </ul>
+                </div>
+                <div>
+                    <form onsubmit="runSearch(event)" class="card">
+                        <label>Graph CSV</label>
+                        <input id="g1" type="file" accept=".csv" required>
+                        
+                        <label>Queries CSV</label>
+                        <input id="q1" type="file" accept=".csv" required>
+                        
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px">
+                            <label>Mode</label>
+                            <select id="mode">
+                                <option value="naive">naïf</option>
+                                <option value="pruned" selected>pruned</option>
+                            </select>
+                            <label>Top-M</label>
+                            <input id="topm" type="number" min="1" max="50" value="12" style="width:90px">
+                            <label>dscale</label>
+                            <input id="dscale" type="number" step="0.05" min="0.05" max="2" value="1.0" style="width:90px">
+                        </div>
+                        
+                        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+                            <button type="submit">Télécharger résultats (CSV)</button>
+                            <button type="button" onclick="runCompare()">Comparer naïf vs pruned</button>
+                        </div>
+                        
+                        <div id="sinfo" class="small" style="margin-top:8px"></div>
+                        <div id="cinfo" class="card small hidden"></div>
+                    </form>
+                </div>
+                <div>
+                    <h3>Paramètres</h3>
+                    <ul class="small">
+                        <li><b>Top-M</b> : nb de features pour la borne (def. 12).</li>
+                        <li><b>dscale</b> : D<sub>eff</sub>=D×dscale (démo, non destructif).</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Chemins -->
+        <div id="paths" class="card hidden">
+            <div class="tabbar">
+                <button onclick="show('search')">Recherche</button>
+                <button id="tabP" class="active" onclick="show('paths')">Chemins</button>
+            </div>
+            <div class="grid3">
+                <div>
+                    <h3>Comprendre</h3>
+                    <ul class="small">
+                        <li>Graphe k-NN (selon Y). <b>A*</b> = exact ; <b>Beam</b> = heuristique (K, Beam).</li>
+                    </ul>
+                </div>
+                <div>
+                    <form onsubmit="runPath(event)" class="card">
+                        <label>Graph CSV</label>
+                        <input id="g2" type="file" accept=".csv" required>
+                        
+                        <label>Queries CSV (optionnel, pour Y par défaut)</label>
+                        <input id="q2" type="file" accept=".csv">
+                        
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px">
+                            <label>A</label>
+                            <input id="src" placeholder="node_1" style="width:120px">
+                            <label>B</label>
+                            <input id="dst" placeholder="node_10" style="width:120px">
+                        </div>
+                        
+                        <label>Y_vector (50 valeurs ';' — vide: 1er Y des queries, sinon uniforme)</label>
+                        <input id="yvec" placeholder="y1;y2;...;y50" style="width:100%">
+                        
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
+                            <label>Algo</label>
+                            <select id="algo">
+                                <option value="astar" selected>A* (exact)</option>
+                                <option value="beam">Beam (heuristique)</option>
+                            </select>
+                            
+                            <span id="aParams" style="display:inline-flex;gap:8px;align-items:center">
+                                <label>k</label>
+                                <input id="kA" type="number" min="2" max="200" value="10" style="width:90px">
+                                <label>MaxExp</label>
+                                <input id="maxexp" type="number" min="100" max="1000000" value="20000" style="width:120px">
+                            </span>
+                            
+                            <span id="bParams" style="display:none;gap:8px;align-items:center">
+                                <label>k</label>
+                                <input id="kB" type="number" min="2" max="200" value="10" style="width:90px">
+                                <label>K</label>
+                                <input id="K" type="number" min="1" max="100" value="6" style="width:90px">
+                                <label>Beam</label>
+                                <input id="BW" type="number" min="2" max="200" value="16" style="width:90px">
+                            </span>
+                        </div>
+                        
+                        <div style="margin-top:10px">
+                            <button type="submit">Calculer le chemin</button>
+                        </div>
+                        
+                        <div id="pout" class="small" style="margin-top:8px"></div>
+                    </form>
+                </div>
+                <div>
+                    <h3>Conseils</h3>
+                    <ul class="small">
+                        <li>A* : augmentez k / MaxExp si A,B éloignés.</li>
+                        <li>Beam : augmentez K / Beam si but non atteint.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

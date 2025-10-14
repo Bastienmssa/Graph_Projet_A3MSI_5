@@ -1,0 +1,17 @@
+# Requirements for Graph Project - Recherche publicitaire
+# TP Graph — Recherche & Bonus (A3MSI_5)
+
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Data Processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# File handling (built-in modules)
+# re, os, time, heapq, io are part of Python standard library
+
+# Optional: For development and testing
+# pytest>=7.0.0
+# httpx>=0.25.0  # For testing FastAPI endpoints
