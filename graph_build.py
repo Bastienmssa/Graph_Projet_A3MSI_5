@@ -136,6 +136,9 @@ def extract_queries_cols(qdf: pd.DataFrame):
     Raises:
         ValueError: Si les colonnes requises sont absentes
     """
+    # Nettoyer les noms de colonnes (supprimer les espaces en début/fin)
+    qdf.columns = qdf.columns.str.strip()
+    
     colA = "point_A" if "point_A" in qdf.columns else ("A" if "A" in qdf.columns else None)
     if colA is None: 
         raise ValueError("Queries: colonne 'point_A' (ou 'A') absente.")

@@ -4,13 +4,16 @@ API REST pour le TP Graph — Recherche & Bonus.
 Contient tous les endpoints pour la recherche pondérée et les algorithmes de chemins.
 """
 
-from fastapi import FastAPI, UploadFile, File, Query
+from fastapi import FastAPI, UploadFile, File, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import os, re, heapq, time
 import numpy as np
 import pandas as pd
 from io import BytesIO, StringIO
+import logging
+from datetime import datetime
+import traceback
 
 # Import des modules du projet
 from graph_build import (
@@ -26,6 +29,44 @@ from radiusx_search import (
     radius_search_to_csv
 )
 
+# Configuration du logging
+def setup_logging():
+    """Configure le système de logging avec fichier et console."""
+    # Créer le répertoire logs s'il n'existe pas
+    os.makedirs("logs", exist_ok=True)
+    
+    # Configuration du logger principal
+    logger = logging.getLogger("graph_api")
+    logger.setLevel(logging.DEBUG)
+    
+    # Éviter la duplication des handlers
+    if logger.handlers:
+        logger.handlers.clear()
+    
+    # Handler pour fichier avec rotation
+    log_filename = f"logs/api_{datetime.now().strftime('%Y%m%d')}.log"
+    file_handler = logging.FileHandler(log_filename, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    
+    # Handler pour console
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    
+    # Format des logs
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+    )
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+# Initialiser le logging
+logger = setup_logging()
+
 # Configuration de l'application
 app = FastAPI(
     title="TP Graph — Recherche & Bonus API", 
@@ -36,6 +77,30 @@ app = FastAPI(
 # Servir les fichiers statiques du frontend
 if os.path.exists("frontend/static"):
     app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
+
+# Middleware pour logger les requêtes
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Middleware pour logger toutes les requêtes HTTP."""
+    start_time = time.time()
+    
+    # Logger les détails de la requête
+    logger.info(f"🔄 Requête entrante: {request.method} {request.url}")
+    logger.debug(f"Headers: {dict(request.headers)}")
+    
+    # Traiter la requête
+    try:
+        response = await call_next(request)
+        process_time = time.time() - start_time
+        
+        logger.info(f"✅ Réponse: {response.status_code} - Temps: {process_time:.3f}s")
+        return response
+        
+    except Exception as e:
+        process_time = time.time() - start_time
+        logger.error(f"❌ Erreur dans middleware: {str(e)} - Temps: {process_time:.3f}s")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
 
 # ========= Aliases pour compatibilité avec le code existant =========
 
@@ -73,20 +138,33 @@ def search_csv(
     Returns:
         CSV des résultats avec métadonnées dans les headers
     """
+    logger.info(f"🔍 Début de search_csv - mode: {mode}")
+    logger.debug(f"Paramètres: top_m={top_m}, dscale={dscale}")
+    
     try:
+        logger.info(f"📁 Fichiers reçus: graph={graph_file.filename}, queries={queries_file.filename}")
+        
         gbytes = _read_csv_flex(graph_file)
         qbytes = _read_csv_flex(queries_file)
+        logger.debug(f"Tailles fichiers: graph={len(gbytes)}B, queries={len(qbytes)}B")
+        
         ids, X = _load_graph_from_csv_bytes(gbytes)
         qdf = pd.read_csv(BytesIO(qbytes))
         colA = _extract_queries_cols(qdf)
+        logger.info(f"📊 Données: {len(ids)} nœuds, {len(qdf)} queries")
 
         if mode == "naive":
+            logger.info("⚡ Exécution mode naïf...")
             rows, t, matched, skipped = radius_search_naive(ids, X, qdf, colA, dscale)
             pruned_rejects = 0
         elif mode == "pruned":
+            logger.info("⚡ Exécution mode pruned...")
             rows, t, pruned_rejects, matched, skipped = radius_search_pruned(ids, X, qdf, colA, dscale, top_m)
         else:
             raise ValueError("mode doit être 'naive' ou 'pruned'.")
+
+        logger.info(f"✅ Recherche terminée: {len(rows)} résultats en {t:.3f}s")
+        logger.debug(f"Stats: matched={matched}, skipped={skipped}, pruned_rejects={pruned_rejects}")
 
         # CSV de sortie
         csv_content = radius_search_to_csv(rows, mode)
@@ -102,6 +180,8 @@ def search_csv(
         return StreamingResponse(iter([csv_content]), media_type="text/csv", headers=headers)
 
     except Exception as e:
+        logger.error(f"❌ Erreur dans search_csv: {str(e)}")
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 @app.post("/compare_search")
@@ -117,16 +197,66 @@ def compare_search(
     Returns:
         JSON avec les statistiques de comparaison
     """
+    logger.info("🔍 Début de compare_search")
+    logger.debug(f"Paramètres: top_m={top_m}, dscale={dscale}")
+    
     try:
+        # Validation des fichiers
+        if not graph_file:
+            logger.error("❌ Fichier graphe manquant")
+            return JSONResponse(status_code=400, content={"error": "Fichier graphe requis"})
+        
+        if not queries_file:
+            logger.error("❌ Fichier queries manquant")
+            return JSONResponse(status_code=400, content={"error": "Fichier queries requis"})
+        
+        logger.info(f"📁 Fichiers reçus: graph={graph_file.filename}, queries={queries_file.filename}")
+        logger.debug(f"Types de contenu: graph={graph_file.content_type}, queries={queries_file.content_type}")
+        
+        # Lecture des fichiers
+        logger.debug("📖 Lecture du fichier graphe...")
         gbytes = _read_csv_flex(graph_file)
+        logger.debug(f"Taille du fichier graphe: {len(gbytes)} bytes")
+        
+        logger.debug("📖 Lecture du fichier queries...")
         qbytes = _read_csv_flex(queries_file)
+        logger.debug(f"Taille du fichier queries: {len(qbytes)} bytes")
+        
+        # Chargement des données
+        logger.debug("🔄 Chargement du graphe...")
         ids, X = _load_graph_from_csv_bytes(gbytes)
+        logger.info(f"📊 Graphe chargé: {len(ids)} nœuds, {X.shape[1]} dimensions")
+        
+        logger.debug("🔄 Chargement des queries...")
         qdf = pd.read_csv(BytesIO(qbytes))
+        logger.info(f"📊 Queries chargées: {len(qdf)} lignes, colonnes: {list(qdf.columns)}")
+        
+        logger.debug("🔄 Extraction des colonnes queries...")
         colA = _extract_queries_cols(qdf)
-
+        logger.debug(f"Colonnes extraites: {colA}")
+        
+        # Comparaison
+        logger.info("⚡ Lancement de la comparaison...")
         comparison_results = compare_radius_search_strategies(ids, X, qdf, colA, dscale, top_m)
+        logger.info("✅ Comparaison terminée avec succès")
+        logger.debug(f"Résultats: {comparison_results}")
+        
         return comparison_results
+        
     except Exception as e:
+        logger.error(f"❌ Erreur dans compare_search: {str(e)}")
+        logger.error(f"Type d'erreur: {type(e).__name__}")
+        logger.error(f"Traceback complet:\n{traceback.format_exc()}")
+        
+        # Informations de debug supplémentaires
+        try:
+            if 'graph_file' in locals():
+                logger.debug(f"Info graph_file: filename={getattr(graph_file, 'filename', 'N/A')}, size={getattr(graph_file, 'size', 'N/A')}")
+            if 'queries_file' in locals():
+                logger.debug(f"Info queries_file: filename={getattr(queries_file, 'filename', 'N/A')}, size={getattr(queries_file, 'size', 'N/A')}")
+        except:
+            logger.debug("Impossible d'obtenir les infos des fichiers")
+        
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 # ========= Algorithmes de chemins (A* et Beam Search) =========
